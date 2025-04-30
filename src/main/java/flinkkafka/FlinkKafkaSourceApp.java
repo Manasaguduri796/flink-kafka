@@ -1,6 +1,8 @@
 package flinkkafka;
 
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.node.ObjectNode;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
@@ -21,23 +23,39 @@ public class FlinkKafkaSourceApp {
 
         // Create Kafka Consumer
         FlinkKafkaConsumer<String> consumer = new FlinkKafkaConsumer<>(
-                "topic-flink",                     // Kafka topic
-                new SimpleStringSchema(),          // Deserialization schema
-                properties                          // Kafka properties
+                "Dataset-topics",
+                new SimpleStringSchema(),
+                properties
         );
-
-
-        // Set to start from the latest offset
         consumer.setStartFromLatest();
 
-        // Add Kafka source to the environment
-        DataStream<String> stream = env.addSource(consumer);
+        // Read from Kafka
+        DataStream<String> input = env.addSource(consumer);
 
+        // Add a "message" field to each JSON object
+        DataStream<String> output = input.map(value -> {
+            try {
+                ObjectMapper mapper = new ObjectMapper();
+                ObjectNode jsonNode = (ObjectNode) mapper.readTree(value);
+                jsonNode.put("message", "Data processed Successfully");
+                return jsonNode.toString();
+            } catch (Exception e) {
+                e.printStackTrace();
+                return null;
+            }
+        });
 
-        // Print the incoming data to stdout
-        stream.print();
+        // Create Kafka Producer (correct constructor)
+        FlinkKafkaProducer<String> producer = new FlinkKafkaProducer<>(
+                "processed-Dataset-topics",           // Output topic
+                new SimpleStringSchema(),             // Serialization schema
+                properties                      // Kafka producer config
 
-        // Execute the Flink job
-        env.execute("Flink Kafka Consumer Example");
+        );
+
+        // Send processed data to output Kafka topic
+        output.addSink(producer);
+
+        env.execute("Flink Kafka Consumer-Producer Example");
     }
 }
